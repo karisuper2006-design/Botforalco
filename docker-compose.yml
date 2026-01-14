@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: cocktail-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      # Persist database
+      - ./cocktails.db:/app/cocktails.db
+      # Mount videos folder
+      - ./video:/app/video:ro

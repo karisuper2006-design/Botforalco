@@ -1,0 +1,2 @@
+{'lastname': 'Иванов', 'firstname': 'Иван', 'telephone': '+79991112233', 'address': 'Красноярск, Киренского, 26', 'position': 'инженер', 'salary': 120000}
+{'lastname': 'Петров', 'firstname': 'Пётр', 'telephone': '+79994445566', 'address': 'Красноярск, Свободный, 79', 'order': 'Order-123'}
