@@ -394,38 +394,49 @@ async def send_cocktail_response(
                 reply_markup=keyboard,
             )
             return
-        except BadRequest:
-            # Cache invalid, continue to re-upload
+        except (BadRequest, TimedOut):
+            # Cache invalid or timeout, continue to re-upload
             pass
 
     video_source = resolve_video_source(slug)
 
     if video_source:
-        if isinstance(video_source, Path):
-            with video_source.open("rb") as file_obj:
-                result = await query.edit_message_media(
-                    media=InputMediaVideo(
-                        media=file_obj,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
-                    ),
-                    reply_markup=keyboard,
-                )
-                # Cache the file_id for future instant delivery
-                if result and result.video:
-                    database.save_video_file_id(slug, result.video.file_id)
-        else:
-            result = await query.edit_message_media(
-                media=InputMediaVideo(
-                    media=video_source,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                ),
-                reply_markup=keyboard,
-            )
-            # Cache the file_id for future instant delivery
-            if result and result.video:
-                database.save_video_file_id(slug, result.video.file_id)
+        # Retry logic for timeouts
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                if isinstance(video_source, Path):
+                    with video_source.open("rb") as file_obj:
+                        result = await query.edit_message_media(
+                            media=InputMediaVideo(
+                                media=file_obj,
+                                caption=caption,
+                                parse_mode=ParseMode.HTML,
+                            ),
+                            reply_markup=keyboard,
+                        )
+                        # Cache the file_id for future instant delivery
+                        if result and result.video:
+                            database.save_video_file_id(slug, result.video.file_id)
+                else:
+                    result = await query.edit_message_media(
+                        media=InputMediaVideo(
+                            media=video_source,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                        ),
+                        reply_markup=keyboard,
+                    )
+                    # Cache the file_id for future instant delivery
+                    if result and result.video:
+                        database.save_video_file_id(slug, result.video.file_id)
+                return  # Success, exit
+            except TimedOut:
+                if attempt < max_retries:
+                    continue  # Retry
+                # All retries failed, fallback to text
+                await edit_query_with_text_or_photo(query, caption, keyboard, parse_mode=ParseMode.HTML)
+                return
     else:
         await edit_query_with_text_or_photo(query, caption, keyboard, parse_mode=ParseMode.HTML)
 
@@ -455,34 +466,50 @@ async def send_cocktail_message(
                 reply_markup=keyboard
             )
             return
-        except BadRequest:
-            # Cache invalid, continue to re-upload
+        except (BadRequest, TimedOut):
+            # Cache invalid or timeout, continue to re-upload
             pass
 
     video_source = resolve_video_source(slug)
 
     if video_source:
-        if isinstance(video_source, Path):
-            with video_source.open("rb") as file_obj:
-                sent = await message.reply_video(
-                    video=file_obj,
-                    caption=caption,
+        # Retry logic for timeouts
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                if isinstance(video_source, Path):
+                    with video_source.open("rb") as file_obj:
+                        sent = await message.reply_video(
+                            video=file_obj,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        # Cache the file_id for future instant delivery
+                        if sent and sent.video:
+                            database.save_video_file_id(slug, sent.video.file_id)
+                else:
+                    sent = await message.reply_video(
+                        video=video_source,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                    # Cache the file_id for future instant delivery
+                    if sent and sent.video:
+                        database.save_video_file_id(slug, sent.video.file_id)
+                return  # Success, exit
+            except TimedOut:
+                if attempt < max_retries:
+                    continue  # Retry
+                # All retries failed, fallback to text
+                await message.reply_text(
+                    text=caption + "\n\n⚠️ Видео временно недоступно",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=keyboard
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard,
                 )
-                # Cache the file_id for future instant delivery
-                if sent and sent.video:
-                    database.save_video_file_id(slug, sent.video.file_id)
-        else:
-            sent = await message.reply_video(
-                video=video_source,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard
-            )
-            # Cache the file_id for future instant delivery
-            if sent and sent.video:
-                database.save_video_file_id(slug, sent.video.file_id)
+                return
     else:
         await message.reply_text(
             text=caption,
@@ -501,9 +528,9 @@ def main() -> None:
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_BOT_TOKEN)
-        .connect_timeout(30.0)
-        .read_timeout(30.0)
-        .write_timeout(30.0)
+        .connect_timeout(60.0)
+        .read_timeout(60.0)
+        .write_timeout(120.0)  # Больше времени для загрузки видео
         .build()
     )
     app.add_handler(CommandHandler("start", start))
